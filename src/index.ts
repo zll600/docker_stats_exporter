@@ -96,7 +96,6 @@ register.registerMetric(gaugeBlockIoReadBytes);
 register.registerMetric(gaugeBlockIoWrittenBytes);
 if (collectDefaultMetrics) {
     prom.collectDefaultMetrics({
-        timeout: 5000,
         register: register,
         prefix: appName + '_',
     });
@@ -134,7 +133,8 @@ async function gatherMetrics() {
         const promises = [];
         for (let container of containers) {
             if (container.Id) {
-                promises.push(docker.getContainer(container.Id).stats({ 'stream': false, 'decode': true }));
+                // promises.push(docker.getContainer(container.Id).stats({ 'stream': false, 'decode': true }));
+                promises.push(docker.getContainer(container.Id).stats({ stream: false, 'one-shot': true }));
             }
         }
         const results = await Promise.all(promises);
@@ -145,8 +145,8 @@ async function gatherMetrics() {
         // Build metrics for each container
         for (let result of results) {
             const labels = {
-                'name': result['name'].replace('/', ''),
-                'id': result['id'].slice(0, 12),
+                'name': result.name.replace('/', ''),
+                'id': result.id.slice(0, 12),
             };
 
             // CPU
