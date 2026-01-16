@@ -1,11 +1,7 @@
-#!/usr/bin/env node
-'use strict';
-
-// Requirements
-const http = require('http');
-const prom = require('prom-client');
-const Docker = require('dockerode');
-const commandLineArgs = require('command-line-args')
+import http from 'http';
+import prom from 'prom-client';
+import Docker from 'dockerode';
+import commandLineArgs from 'command-line-args';
 
 // Constants
 const appName = 'dockerstats';
