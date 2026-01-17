@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import http from 'http';
 import prom from 'prom-client';
 import Docker from 'dockerode';
@@ -10,14 +11,16 @@ const appName = 'dockerstats';
 const argOptions = commandLineArgs([
     { name: 'port', alias: 'p', type: Number, defaultValue: process.env.DOCKERSTATS_PORT || 9487, },
     { name: 'interval', alias: 'i', type: Number, defaultValue: process.env.DOCKERSTATS_INTERVAL || 15, },
-    { name: 'hostip', type: String, defaultValue: process.env.DOCKERSTATS_HOSTIP || '', },
-    { name: 'hostport', type: Number, defaultValue: process.env.DOCKERSTATS_HOSTPORT || 0, },
+    { name: 'docker_host', type: String, defaultValue: process.env.DOCKER_HOST || '', },
+    { name: 'docker_port', type: Number, defaultValue: process.env.DOCKER_PORT || 0, },
+    { name: 'docker_socket', type: String, defaultValue: process.env.DOCKER_SOCKET || '', },
     { name: 'collectdefault', type: Boolean, },
 ]);
 const port = argOptions.port;
 const interval = argOptions.interval >= 3 ? argOptions.interval : 3;
-const dockerIP = argOptions.hostip;
-const dockerPort = argOptions.hostport;
+const dockerIP = argOptions.docker_host;
+const dockerPort = argOptions.docker_port;
+const dockerSocket = argOptions.docker_socket;
 const collectDefaultMetrics = process.env.DOCKERSTATS_DEFAULTMETRICS || argOptions.collectdefault;
 
 // Connect to docker
@@ -26,8 +29,8 @@ if (dockerIP && dockerPort) {
     dockerOptions = { host: dockerIP, port: dockerPort, };
     console.log(`INFO: Connecting to Docker on ${dockerIP}:${dockerPort}...`);
 } else {
-    dockerOptions = { socketPath: '/var/run/docker.sock' };
-    console.log(`INFO: Connecting to Docker on /var/run/docker.sock...`);
+    dockerOptions = { socketPath: dockerSocket };
+    console.log(`INFO: Connecting to Docker on ${dockerSocket}...`);
 }
 const docker = new Docker(dockerOptions);
 if (!docker) {
@@ -37,49 +40,49 @@ if (!docker) {
 
 // Initialize prometheus metrics.
 const gaugeCpuUsageRatio = new prom.Gauge({
-    'name': appName + '_cpu_usage_ratio',
-    'help': 'CPU usage percentage 0-100',
-    'labelNames': ['name', 'id'],
+    name: appName + '_cpu_usage_ratio',
+    help: 'CPU usage percentage 0-100',
+    labelNames: ['name', 'id'],
 });
 const gaugeMemoryUsageBytes = new prom.Gauge({
-    'name': appName + '_memory_usage_bytes',
-    'help': 'Memory usage in bytes',
-    'labelNames': ['name', 'id'],
+    name: appName + '_memory_usage_bytes',
+    help: 'Memory usage in bytes',
+    labelNames: ['name', 'id'],
 });
 const gaugeMemoryUsageRssBytes = new prom.Gauge({
-    'name': appName + '_memory_usage_rss_bytes',
-    'help': 'Memory rss usage in bytes',
-    'labelNames': ['name', 'id'],
+    name: appName + '_memory_usage_rss_bytes',
+    help: 'Memory rss usage in bytes',
+    labelNames: ['name', 'id'],
 });
 const gaugeMemoryLimitBytes = new prom.Gauge({
-    'name': appName + '_memory_limit_bytes',
-    'help': 'Memory limit in bytes',
-    'labelNames': ['name', 'id'],
+    name: appName + '_memory_limit_bytes',
+    help: 'Memory limit in bytes',
+    labelNames: ['name', 'id'],
 });
 const gaugeMemoryUsageRatio = new prom.Gauge({
-    'name': appName + '_memory_usage_ratio',
-    'help': 'Memory usage percentage 0-100',
-    'labelNames': ['name', 'id'],
+    name: appName + '_memory_usage_ratio',
+    help: 'Memory usage percentage 0-100',
+    labelNames: ['name', 'id'],
 });
 const gaugeNetworkReceivedBytes = new prom.Gauge({
-    'name': appName + '_network_received_bytes',
-    'help': 'Network received in bytes',
-    'labelNames': ['name', 'id'],
+    name: appName + '_network_received_bytes',
+    help: 'Network received in bytes',
+    labelNames: ['name', 'id'],
 });
 const gaugeNetworkTransmittedBytes = new prom.Gauge({
-    'name': appName + '_network_transmitted_bytes',
-    'help': 'Network transmitted in bytes',
-    'labelNames': ['name', 'id'],
+    name: appName + '_network_transmitted_bytes',
+    help: 'Network transmitted in bytes',
+    labelNames: ['name', 'id'],
 });
 const gaugeBlockIoReadBytes = new prom.Gauge({
-    'name': appName + '_blockio_read_bytes',
-    'help': 'Block IO read in bytes',
-    'labelNames': ['name', 'id'],
+    name: appName + '_blockio_read_bytes',
+    help: 'Block IO read in bytes',
+    labelNames: ['name', 'id'],
 });
 const gaugeBlockIoWrittenBytes = new prom.Gauge({
-    'name': appName + '_blockio_written_bytes',
-    'help': 'Block IO written in bytes',
-    'labelNames': ['name', 'id'],
+    name: appName + '_blockio_written_bytes',
+    help: 'Block IO written in bytes',
+    labelNames: ['name', 'id'],
 });
 
 // Register all metrics
@@ -145,28 +148,26 @@ async function gatherMetrics() {
         // Build metrics for each container
         for (let result of results) {
             const labels = {
-                'name': result.name.replace('/', ''),
-                'id': result.id.slice(0, 12),
+                name: result.name.replace('/', ''),
+                id: result.id.slice(0, 12),
             };
 
             // CPU
-            if (result['cpu_stats'] && result['cpu_stats']['cpu_usage'] && result['precpu_stats'] && result['precpu_stats']['cpu_usage']) {
-                const cpuTotalUsage = result['cpu_stats']['cpu_usage']['total_usage'] || 0;
-                const precpuTotalUsage = result['precpu_stats']['cpu_usage']['total_usage'] || 0;
-                const cpuDelta = cpuTotalUsage - precpuTotalUsage;
-                const cpuSystemUsage = result['cpu_stats']['system_cpu_usage'] || 0;
-                const precpuSystemUsage = result['precpu_stats']['system_cpu_usage'] || 0;
-                const systemDelta = cpuSystemUsage - precpuSystemUsage;
-                const numCpus = result['cpu_stats']['online_cpus'] || 0;
-                const cpuPercent = systemDelta ? parseFloat(((cpuDelta / systemDelta) * numCpus * 100).toFixed(2)) : 0;
-                gaugeCpuUsageRatio.set(labels, cpuPercent);
-            }
+            const cpuTotalUsage = result.cpu_stats.cpu_usage.total_usage;
+            const precpuTotalUsage = result.precpu_stats.cpu_usage.total_usage || 0;
+            const cpuDelta = cpuTotalUsage - precpuTotalUsage;
+            const cpuSystemUsage = result.cpu_stats.system_cpu_usage || 0;
+            const precpuSystemUsage = result.precpu_stats.system_cpu_usage || 0;
+            const systemDelta = cpuSystemUsage - precpuSystemUsage;
+            const numCpus = result.cpu_stats.online_cpus || 0;
+            const cpuPercent = systemDelta ? parseFloat(((cpuDelta / systemDelta) * numCpus * 100).toFixed(2)) : 0;
+            gaugeCpuUsageRatio.set(labels, cpuPercent);
 
             // Memory
-            if (result['memory_stats']) {
-                const memUsage = result['memory_stats']['usage'] || 0;
-                const memUsageRss = result['memory_stats']['stats'] && result['memory_stats']['stats']['rss'] ? result['memory_stats']['stats']['rss'] : 0;
-                const memLimit = result['memory_stats']['limit'] || 0;
+            if (result.memory_stats) {
+                const memUsage = result.memory_stats.usage || 0;
+                const memUsageRss = result.memory_stats.stats && result.memory_stats.stats.rss ? result.memory_stats.stats.rss : 0;
+                const memLimit = result.memory_stats.limit || 0;
                 const memPercent = memLimit ? parseFloat(((memUsage / memLimit) * 100).toFixed(2)) : 0;
                 gaugeMemoryUsageBytes.set(labels, memUsage);
                 gaugeMemoryUsageRssBytes.set(labels, memUsageRss);
@@ -175,32 +176,32 @@ async function gatherMetrics() {
             }
 
             // Network
-            if (result['networks']) {
-                if (result['networks']['eth0']) {
-                    const netRx = result['networks']['eth0']['rx_bytes'] || 0;
-                    const netTx = result['networks']['eth0']['tx_bytes'] || 0;
+            if (result.networks) {
+                if (result.networks.eth0) {
+                    const netRx = result.networks.eth0.rx_bytes || 0;
+                    const netTx = result.networks.eth0.tx_bytes || 0;
                     gaugeNetworkReceivedBytes.set(labels, netRx);
                     gaugeNetworkTransmittedBytes.set(labels, netTx);
-                } else if (result['networks']['host']) {
-                    const netRx = result['networks']['host']['rx_bytes'] || 0;
-                    const netTx = result['networks']['host']['tx_bytes'] || 0;
+                } else if (result.networks.host) {
+                    const netRx = result.networks.host.rx_bytes || 0;
+                    const netTx = result.networks.host.tx_bytes || 0;
                     gaugeNetworkReceivedBytes.set(labels, netRx);
                     gaugeNetworkTransmittedBytes.set(labels, netTx);
                 }
             }
 
             // Block IO
-            if (result['blkio_stats']) {
+            if (result.blkio_stats) {
                 let ioRead = 0.00;
                 let ioWrite = 0.00;
-                if (result['blkio_stats']['io_service_bytes_recursive'] && Array.isArray(result['blkio_stats']['io_service_bytes_recursive'])) {
-                    for (let io of result['blkio_stats']['io_service_bytes_recursive']) {
-                        switch (io['op'].toUpperCase()) {
+                if (result.blkio_stats.io_service_bytes_recursive && Array.isArray(result.blkio_stats.io_service_bytes_recursive)) {
+                    for (let io of result.blkio_stats.io_service_bytes_recursive) {
+                        switch (io.op.toUpperCase()) {
                             case 'READ':
-                                ioRead += io['value'];
+                                ioRead += io.value;
                                 break;
                             case 'WRITE':
-                                ioWrite += io['value'];
+                                ioWrite += io.value;
                                 break;
                         }
                     }

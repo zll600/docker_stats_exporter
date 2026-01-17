@@ -2,3 +2,6 @@ node_modules
 local_env.bat
 local.env
 dist
+
+# env
+.env
